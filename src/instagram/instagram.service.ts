@@ -13,7 +13,7 @@ import {
   readJsonShortCodes,
   setAuthCookies,
 } from './instagram.utils';
-import { IPost, IShortCode } from './instagram.interfaces';
+import { IPost, IShortCode, IStatusData } from './instagram.interfaces';
 
 @Injectable()
 export class InstagramService {
@@ -427,7 +427,7 @@ export class InstagramService {
     return JSON.stringify({ status: 'started', id });
   }
 
-  getShortCodesStatus(): { current: number; total: number; running: boolean } {
+  getShortCodesStatus(): IStatusData {
     console.log('ShortCodes Status was send: ', {
       current: this.shortCodesArray.length,
       total: this.countOfPosts,
@@ -439,7 +439,7 @@ export class InstagramService {
       running: this.isRunning,
     };
   }
-  
+
   async getShortCodesFile(id: string): Promise<IShortCode[]> {
     const savedShortCodes = readJsonShortCodes(this.mainDir, id);
     return savedShortCodes;

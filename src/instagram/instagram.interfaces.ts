@@ -9,6 +9,12 @@ export interface IPost {
   picUrls: string[];
 }
 
+export interface IStatusData {
+  current: number;
+  total: number;
+  running: boolean;
+}
+
 export interface CookieObject {
   name: string;
   value: string;
