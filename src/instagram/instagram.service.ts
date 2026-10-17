@@ -23,7 +23,8 @@ export class InstagramService {
   private shortCodesArray: IShortCode[] = [];
   private seenShortCodes = new Set<string>();
   private countOfPosts: number = 0;
-  private isRunning = false;
+  private isRunningShortCodesSearch = false;
+  private isRunningPostSearch = false;
 
   // Определяем корневую папку для скачивания
   mainDir = path.join(process.cwd(), 'uploads');
@@ -117,6 +118,286 @@ export class InstagramService {
 
     return uniqueCodes;
   }
+  private async getPUrls(
+    shortCode: IShortCode,
+    browser: Browser,
+  ): Promise<IPost> {
+    const page = await browser.newPage();
+    await page.setViewport({ width: 1920, height: 1080 });
+
+    const picUrl = `https://www.instagram.com/p/${shortCode.shortCode}/`;
+    const linksSet = new Set<string>();
+    const post: IPost = {
+      type: shortCode.type,
+      shortCode: shortCode.shortCode,
+      picUrls: [],
+    };
+
+    await page.goto(picUrl, { waitUntil: 'domcontentloaded' });
+    await deley(this.deleyCount);
+
+    const picPagesCount = await page.evaluate(() => {
+      const elements = document.querySelectorAll('div._acnb');
+      if (elements.length < 1) return 1;
+      return elements.length;
+    });
+
+    for (let i = 1; i <= picPagesCount; i++) {
+      await page.goto(`${picUrl}?img_index=${i}`, {
+        waitUntil: 'domcontentloaded',
+      });
+      await deley(this.deleyCount);
+
+      // await makeScreenshot(page, 'getPUrls_' + Date.now())
+
+      // Считываем актуальный src
+      const elementsLinks: string[] = await page.evaluate(() => {
+        const nodeList = document.querySelectorAll<HTMLImageElement>(
+          'div.x1i10hfl div._aagu img',
+        );
+        const urls = Array.from(nodeList).map((img) => img.src);
+        return urls;
+      });
+
+      // Добавляем только уникальные ссылки
+      if (elementsLinks) {
+        elementsLinks.forEach((element) => {
+          const expectedParam: string | null = getLastQueryParam(element);
+          if (!hasLastParam(linksSet, expectedParam)) {
+            linksSet.add(element);
+          }
+        });
+      }
+    }
+
+    await page.close();
+
+    post.picUrls = Array.from(linksSet);
+
+    return post;
+  }
+  private async getReelPicUrl(
+    shortCode: IShortCode,
+    browser: Browser,
+  ): Promise<IPost> {
+    const page = await browser.newPage();
+    await page.setViewport({ width: 1920, height: 1080 });
+
+    const picUrl = `https://www.instagram.com/reel/${shortCode.shortCode}/`;
+    const post: IPost = {
+      type: shortCode.type,
+      shortCode: shortCode.shortCode,
+      picUrls: [],
+    };
+
+    await page.goto(picUrl, { waitUntil: 'domcontentloaded' });
+    await deley(this.deleyCount);
+
+    const reelPicUrl: string = await page.evaluate((): string => {
+      const elements: HTMLImageElement | null =
+        document.querySelector('div > img');
+      if (elements) return elements.src;
+      return '';
+    });
+
+    post.picUrls = [reelPicUrl];
+
+    await page.close();
+
+    return post;
+  }
+  async getAllPics(id: string): Promise<IPost[]> {
+    const startTime = Date.now();
+    console.log(`Запуск getAllPics для ${id}...`);
+
+    const browser = await puppeteer.launch({
+      headless: true,
+    });
+    await setAuthCookies(browser);
+
+    const shortCodes = await measure('getShortCodes', () =>
+      this.getShortCodes(id, browser),
+    );
+
+    if (shortCodes.length) {
+      const fileName = path.join(this.mainDir, `${id}_ShortCodes.json`);
+
+      // Создаем папку uploads, если её нет
+      fs.mkdirSync(this.mainDir, { recursive: true });
+
+      fs.writeFileSync(fileName, JSON.stringify(shortCodes), 'utf-8');
+    }
+
+    const picPosts: IPost[] = [];
+
+    let i = 0;
+
+    for (const shortCode of shortCodes) {
+      console.log(`#${i + 1} из ${shortCodes.length}`);
+
+      if (shortCode.type === 'p') {
+        const post = await measure('getPUrls', () =>
+          this.getPUrls(shortCode, browser),
+        );
+        picPosts.push(post);
+      }
+      if (shortCode.type === 'reel') {
+        const post = await measure('getReelPicUrl', () =>
+          this.getReelPicUrl(shortCode, browser),
+        );
+        picPosts.push(post);
+      }
+      i++;
+    }
+
+    const outputPath = path.join(this.mainDir, `${id}.json`);
+    fs.writeFileSync(outputPath, JSON.stringify(picPosts), 'utf-8');
+
+    await browser.close();
+
+    const totalTime = Date.now() - startTime;
+    console.log(`✅ getAllPics завершён за ${totalTime} мс`);
+
+    return picPosts;
+  }
+  async getAllShortCodes(id: string): Promise<IShortCode[]> {
+    const startTime = Date.now();
+    console.log(`Запуск getAllShortCodes для ${id}...`);
+
+    const browser = await puppeteer.launch({
+      headless: true,
+    });
+    await setAuthCookies(browser);
+
+    const shortCodes = await measure('getShortCodes', () =>
+      this.getShortCodes(id, browser),
+    );
+
+    if (shortCodes.length) {
+      const fileName = path.join(this.mainDir, `${id}_ShortCodes.json`);
+
+      // Создаем папку uploads, если её нет
+      fs.mkdirSync(this.mainDir, { recursive: true });
+
+      fs.writeFileSync(fileName, JSON.stringify(shortCodes), 'utf-8');
+    }
+
+    await browser.close();
+
+    const totalTime = Date.now() - startTime;
+    console.log(`✅ getAllShortCodes завершён за ${totalTime} мс`);
+
+    return shortCodes;
+  }
+  async getPicByShortCode(type: string, shortCode: string): Promise<IPost> {
+    const startTime = Date.now();
+    console.log(`Запуск getPicByShortCode для ${shortCode}...`);
+
+    const shortCodeData: IShortCode = { type, shortCode };
+    const browser = await puppeteer.launch({
+      headless: true,
+    });
+    await setAuthCookies(browser);
+
+    if (type === 'p') {
+      const post: IPost = await measure('getPUrls', () =>
+        this.getPUrls(shortCodeData, browser),
+      );
+      await browser.close();
+      return post;
+    }
+    if (type === 'reel') {
+      const post: IPost = await measure('getReelPicUrl', () =>
+        this.getReelPicUrl(shortCodeData, browser),
+      );
+      await browser.close();
+      return post;
+    }
+
+    const post: IPost = { type: type, shortCode: shortCode, picUrls: [] };
+
+    await browser.close();
+
+    const totalTime = Date.now() - startTime;
+    console.log(`✅ getAllShortCodes завершён за ${totalTime} мс`);
+
+    return post;
+  }
+  async downloadAllPics(fileName: string) {
+    try {
+      // 1. Определяем корневую папку для скачивания
+      const downloadsDir = path.join(this.mainDir, fileName);
+
+      // 2. Создаем папку uploads, если её нет
+      fs.mkdirSync(downloadsDir, { recursive: true });
+
+      const posts = readJsonData(fileName);
+
+      for (const post of posts) {
+        console.log(`\n Обработка поста: ${post.shortCode}`);
+        for (const picUrl of post.picUrls) {
+          if (!picUrl) continue;
+
+          try {
+            const response = await fetch(picUrl);
+            const buffer = await response.arrayBuffer();
+
+            const imgName = `${post.type}_${post.shortCode}_${Date.now()}.jpg`;
+
+            const filePath = path.join(downloadsDir, imgName);
+
+            await fs.promises.writeFile(filePath, Buffer.from(buffer));
+            console.log(`Сохранено: ${imgName}`);
+          } catch (e) {
+            console.log(`Ошибка: ${(e as Error).message}`);
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Ошибка при загрузке файла:', error);
+    }
+  }
+
+  startGetAllShortCodesV2(id: string): string {
+    if (this.isRunningShortCodesSearch)
+      return JSON.stringify({ status: 'already_running' });
+
+    this.isRunningShortCodesSearch = true;
+    this.shortCodesArray = [];
+    this.seenShortCodes.clear();
+
+    this.getShortCodesV2(id)
+      .catch((e) => console.error('❌ getShortCodesV2:', e)) // ← без этого ошибки молча убивают процесс
+      .finally(() => {
+        console.log('getShortCodesV2 finally');
+        this.isRunningShortCodesSearch = false;
+      });
+
+    return JSON.stringify({ status: 'started', id });
+  }
+  getShortCodesStatus(): IStatusData {
+    console.log('ShortCodes Status was send: ', {
+      current: this.shortCodesArray.length,
+      total: this.countOfPosts,
+      running: this.isRunningShortCodesSearch,
+    });
+    return {
+      current: this.shortCodesArray.length,
+      total: this.countOfPosts,
+      running: this.isRunningShortCodesSearch,
+    };
+  }
+  startGetAllPosts(id: string): string {
+    if (this.isRunningPostSearch)
+      return JSON.stringify({ status: 'already_running' });
+
+    this.isRunningPostSearch = true;
+
+    this.getPosts(id);
+
+    return JSON.stringify({ status: 'started', id });
+  }
+
   private async getShortCodesV2(id: string): Promise<void> {
     // Опредение адреса для запроса
     const url = `https://www.instagram.com/${id}/`;
@@ -236,123 +517,26 @@ export class InstagramService {
       fs.writeFileSync(fileName, JSON.stringify(this.shortCodesArray), 'utf-8');
     }
   }
-  private async getPUrls(
-    shortCode: IShortCode,
-    browser: Browser,
-  ): Promise<IPost> {
-    const page = await browser.newPage();
-    await page.setViewport({ width: 1920, height: 1080 });
+  private async getPosts(id: string): Promise<void>{
+    // Чтение файла с ShortCodes
+    const savedShortCodes: IShortCode[] = readJsonShortCodes(this.mainDir, id);
 
-    const picUrl = `https://www.instagram.com/p/${shortCode.shortCode}/`;
-    const linksSet = new Set<string>();
-    const post: IPost = {
-      type: shortCode.type,
-      shortCode: shortCode.shortCode,
-      picUrls: [],
-    };
-
-    await page.goto(picUrl, { waitUntil: 'domcontentloaded' });
-    await deley(this.deleyCount);
-
-    const picPagesCount = await page.evaluate(() => {
-      const elements = document.querySelectorAll('div._acnb');
-      if (elements.length < 1) return 1;
-      return elements.length;
-    });
-
-    for (let i = 1; i <= picPagesCount; i++) {
-      await page.goto(`${picUrl}?img_index=${i}`, {
-        waitUntil: 'domcontentloaded',
-      });
-      await deley(this.deleyCount);
-
-      // await makeScreenshot(page, 'getPUrls_' + Date.now())
-
-      // Считываем актуальный src
-      const elementsLinks: string[] = await page.evaluate(() => {
-        const nodeList = document.querySelectorAll<HTMLImageElement>(
-          'div.x1i10hfl div._aagu img',
-        );
-        const urls = Array.from(nodeList).map((img) => img.src);
-        return urls;
-      });
-
-      // Добавляем только уникальные ссылки
-      if (elementsLinks) {
-        elementsLinks.forEach((element) => {
-          const expectedParam: string | null = getLastQueryParam(element);
-          if (!hasLastParam(linksSet, expectedParam)) {
-            linksSet.add(element);
-          }
-        });
-      }
-    }
-
-    await page.close();
-
-    post.picUrls = Array.from(linksSet);
-
-    return post;
-  }
-  private async getReelPicUrl(
-    shortCode: IShortCode,
-    browser: Browser,
-  ): Promise<IPost> {
-    const page = await browser.newPage();
-    await page.setViewport({ width: 1920, height: 1080 });
-
-    const picUrl = `https://www.instagram.com/reel/${shortCode.shortCode}/`;
-    const post: IPost = {
-      type: shortCode.type,
-      shortCode: shortCode.shortCode,
-      picUrls: [],
-    };
-
-    await page.goto(picUrl, { waitUntil: 'domcontentloaded' });
-    await deley(this.deleyCount);
-
-    const reelPicUrl: string = await page.evaluate((): string => {
-      const elements: HTMLImageElement | null =
-        document.querySelector('div > img');
-      if (elements) return elements.src;
-      return '';
-    });
-
-    post.picUrls = [reelPicUrl];
-
-    await page.close();
-
-    return post;
-  }
-
-  async getAllPics(id: string): Promise<IPost[]> {
-    const startTime = Date.now();
-    console.log(`Запуск getAllPics для ${id}...`);
-
+    // Инициализация и настройка браузера
     const browser = await puppeteer.launch({
       headless: true,
     });
     await setAuthCookies(browser);
 
-    const shortCodes = await measure('getShortCodes', () =>
-      this.getShortCodes(id, browser),
-    );
-
-    if (shortCodes.length) {
-      const fileName = path.join(this.mainDir, `${id}_ShortCodes.json`);
-
-      // Создаем папку uploads, если её нет
-      fs.mkdirSync(this.mainDir, { recursive: true });
-
-      fs.writeFileSync(fileName, JSON.stringify(shortCodes), 'utf-8');
-    }
+    // Настройка страницы
+    const page = await browser.newPage();
+    await page.setViewport({ width: 1920, height: 1080 });
 
     const picPosts: IPost[] = [];
 
     let i = 0;
 
-    for (const shortCode of shortCodes) {
-      console.log(`#${i + 1} из ${shortCodes.length}`);
+    for (const shortCode of savedShortCodes) {
+      console.log(`#${i + 1} из ${savedShortCodes.length}`);
 
       if (shortCode.type === 'p') {
         const post = await measure('getPUrls', () =>
@@ -368,150 +552,12 @@ export class InstagramService {
       }
       i++;
     }
+    
+    console.log('picPosts: ', picPosts);
 
-    const outputPath = path.join(this.mainDir, `${id}.json`);
-    fs.writeFileSync(outputPath, JSON.stringify(picPosts), 'utf-8');
-
-    await browser.close();
-
-    const totalTime = Date.now() - startTime;
-    console.log(`✅ getAllPics завершён за ${totalTime} мс`);
-
-    return picPosts;
   }
-
-  async getAllShortCodes(id: string): Promise<IShortCode[]> {
-    const startTime = Date.now();
-    console.log(`Запуск getAllShortCodes для ${id}...`);
-
-    const browser = await puppeteer.launch({
-      headless: true,
-    });
-    await setAuthCookies(browser);
-
-    const shortCodes = await measure('getShortCodes', () =>
-      this.getShortCodes(id, browser),
-    );
-
-    if (shortCodes.length) {
-      const fileName = path.join(this.mainDir, `${id}_ShortCodes.json`);
-
-      // Создаем папку uploads, если её нет
-      fs.mkdirSync(this.mainDir, { recursive: true });
-
-      fs.writeFileSync(fileName, JSON.stringify(shortCodes), 'utf-8');
-    }
-
-    await browser.close();
-
-    const totalTime = Date.now() - startTime;
-    console.log(`✅ getAllShortCodes завершён за ${totalTime} мс`);
-
-    return shortCodes;
-  }
-
-  getAllShortCodesV2(id: string): string {
-    if (this.isRunning) return JSON.stringify({ status: 'already_running' });
-
-    this.isRunning = true;
-    this.shortCodesArray = [];
-    this.seenShortCodes.clear();
-
-    this.getShortCodesV2(id)
-      .catch((e) => console.error('❌ getShortCodesV2:', e)) // ← без этого ошибки молча убивают процесс
-      .finally(() => {
-        console.log('getShortCodesV2 finally');
-        this.isRunning = false;
-      });
-
-    return JSON.stringify({ status: 'started', id });
-  }
-
-  getShortCodesStatus(): IStatusData {
-    console.log('ShortCodes Status was send: ', {
-      current: this.shortCodesArray.length,
-      total: this.countOfPosts,
-      running: this.isRunning,
-    });
-    return {
-      current: this.shortCodesArray.length,
-      total: this.countOfPosts,
-      running: this.isRunning,
-    };
-  }
-
   async getShortCodesFile(id: string): Promise<IShortCode[]> {
     const savedShortCodes = readJsonShortCodes(this.mainDir, id);
     return savedShortCodes;
-  }
-
-  async getPicByShortCode(type: string, shortCode: string): Promise<IPost> {
-    const startTime = Date.now();
-    console.log(`Запуск getPicByShortCode для ${shortCode}...`);
-
-    const shortCodeData: IShortCode = { type, shortCode };
-    const browser = await puppeteer.launch({
-      headless: true,
-    });
-    await setAuthCookies(browser);
-
-    if (type === 'p') {
-      const post: IPost = await measure('getPUrls', () =>
-        this.getPUrls(shortCodeData, browser),
-      );
-      await browser.close();
-      return post;
-    }
-    if (type === 'reel') {
-      const post: IPost = await measure('getReelPicUrl', () =>
-        this.getReelPicUrl(shortCodeData, browser),
-      );
-      await browser.close();
-      return post;
-    }
-
-    const post: IPost = { type: type, shortCode: shortCode, picUrls: [] };
-
-    await browser.close();
-
-    const totalTime = Date.now() - startTime;
-    console.log(`✅ getAllShortCodes завершён за ${totalTime} мс`);
-
-    return post;
-  }
-
-  async downloadAllPics(fileName: string) {
-    try {
-      // 1. Определяем корневую папку для скачивания
-      const downloadsDir = path.join(this.mainDir, fileName);
-
-      // 2. Создаем папку uploads, если её нет
-      fs.mkdirSync(downloadsDir, { recursive: true });
-
-      const posts = readJsonData(fileName);
-
-      for (const post of posts) {
-        console.log(`\n Обработка поста: ${post.shortCode}`);
-        for (const picUrl of post.picUrls) {
-          if (!picUrl) continue;
-
-          try {
-            const response = await fetch(picUrl);
-            const buffer = await response.arrayBuffer();
-
-            const imgName = `${post.type}_${post.shortCode}_${Date.now()}.jpg`;
-
-            const filePath = path.join(downloadsDir, imgName);
-
-            await fs.promises.writeFile(filePath, Buffer.from(buffer));
-            console.log(`Сохранено: ${imgName}`);
-          } catch (e) {
-            console.log(`Ошибка: ${(e as Error).message}`);
-          }
-        }
-      }
-    } catch (error) {
-      console.error('Ошибка при загрузке файла:', error);
-    }
   }
 }
