@@ -10,7 +10,10 @@ import {
   makeScreenshot,
   measure,
   readJsonData,
+  readJsonPosts,
   readJsonShortCodes,
+  saveJsonPosts,
+  saveJsonShortCodes,
   setAuthCookies,
 } from './instagram.utils';
 import { IPost, IShortCode, IStatusData } from './instagram.interfaces';
@@ -373,7 +376,7 @@ export class InstagramService {
         this.isRunningShortCodesSearch = false;
       });
 
-    return JSON.stringify({ status: 'started', id });
+    return JSON.stringify({ status: 'startGetAllShortCodesV2 started', id });
   }
   getShortCodesStatus(): IStatusData {
     console.log('ShortCodes Status was send: ', {
@@ -395,7 +398,7 @@ export class InstagramService {
 
     this.getPosts(id);
 
-    return JSON.stringify({ status: 'started', id });
+    return JSON.stringify({ status: 'startGetAllPosts started', id });
   }
 
   private async getShortCodesV2(id: string): Promise<void> {
@@ -422,12 +425,9 @@ export class InstagramService {
 
     // Ожидание загрузки селектора для выбора элемента количества постов
     try {
-      const selector = await page.waitForSelector(
-        'div:nth-child(1) > span > span > span',
-        {
-          timeout: 10000,
-        },
-      );
+      await page.waitForSelector('div:nth-child(1) > span > span > span', {
+        timeout: 10000,
+      });
     } catch (e) {
       console.warn('Селектор поста не найден.');
     }
@@ -509,17 +509,19 @@ export class InstagramService {
     await browser.close();
 
     if (this.shortCodesArray.length) {
-      const fileName = path.join(this.mainDir, `${id}_ShortCodes.json`);
-
-      // Создаем папку uploads, если её нет
-      fs.mkdirSync(this.mainDir, { recursive: true });
-
-      fs.writeFileSync(fileName, JSON.stringify(this.shortCodesArray), 'utf-8');
+      saveJsonShortCodes(this.mainDir, id, this.shortCodesArray);
     }
   }
-  private async getPosts(id: string): Promise<void>{
+  private async getPosts(id: string): Promise<void> {
     // Чтение файла с ShortCodes
-    const savedShortCodes: IShortCode[] = readJsonShortCodes(this.mainDir, id);
+    const savedPosts: IPost[] = readJsonPosts(this.mainDir, id);
+    if (savedPosts.length > 0) return;
+
+    const shortCodes = readJsonShortCodes(this.mainDir, id);
+    if (shortCodes.length === 0) {
+      console.log('No short codes found for this post.');
+      return;
+    }
 
     // Инициализация и настройка браузера
     const browser = await puppeteer.launch({
@@ -528,33 +530,32 @@ export class InstagramService {
     await setAuthCookies(browser);
 
     // Настройка страницы
-    const page = await browser.newPage();
-    await page.setViewport({ width: 1920, height: 1080 });
+    // const page = await browser.newPage();
+    // await page.setViewport({ width: 1920, height: 1080 });
 
-    const picPosts: IPost[] = [];
+    const posts: IPost[] = [];
 
     let i = 0;
 
-    for (const shortCode of savedShortCodes) {
-      console.log(`#${i + 1} из ${savedShortCodes.length}`);
+    for (const shortCode of shortCodes) {
+      console.log(`#${i + 1} из ${shortCodes.length}`);
 
       if (shortCode.type === 'p') {
         const post = await measure('getPUrls', () =>
           this.getPUrls(shortCode, browser),
         );
-        picPosts.push(post);
+        posts.push(post);
       }
       if (shortCode.type === 'reel') {
         const post = await measure('getReelPicUrl', () =>
           this.getReelPicUrl(shortCode, browser),
         );
-        picPosts.push(post);
+        posts.push(post);
       }
       i++;
     }
-    
-    console.log('picPosts: ', picPosts);
 
+    saveJsonPosts(this.mainDir, id, posts);
   }
   async getShortCodesFile(id: string): Promise<IShortCode[]> {
     const savedShortCodes = readJsonShortCodes(this.mainDir, id);

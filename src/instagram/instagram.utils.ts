@@ -1,27 +1,7 @@
-import { CookieObject, IPost, IShortCode } from './instagram.interfaces';
+import { IPost, IShortCode } from './instagram.interfaces';
 import * as path from 'path';
 import * as fs from 'fs';
 import { Browser, Page } from 'puppeteer';
-
-export function parseCookiesToPuppeteerFormat(
-  cookieString: string,
-  domain = '.instagram.com',
-  path = '/',
-): CookieObject[] {
-  return cookieString
-    .split('; ')
-    .map((cookie) => {
-      const [name, ...valueParts] = cookie.split('=');
-      const value = valueParts.join('=');
-      return {
-        name: name.trim(),
-        value: decodeURIComponent(value.trim()),
-        domain,
-        path,
-      };
-    })
-    .filter((cookie) => cookie.name && cookie.value);
-}
 
 // Скриншот
 export async function makeScreenshot(
@@ -85,8 +65,8 @@ export async function measure<T>(
 
 export async function setAuthCookies(browser: Browser) {
   const ds_user_id: string = process.env.ds_user_id
-  ? process.env.ds_user_id
-  : '';
+    ? process.env.ds_user_id
+    : '';
   const ig_did: string = process.env.ig_did ? process.env.ig_did : '';
   const mid: string = process.env.mid ? process.env.mid : '';
   const datr: string = process.env.datr ? process.env.datr : '';
@@ -190,6 +170,55 @@ export function readJsonShortCodes(mainDir: string, id: string): IShortCode[] {
     }
   } catch (error) {
     console.log(`Ошибка чтения файла ${filePath}:`);
+    return [];
+  }
+}
+export function readJsonPosts(mainDir: string, id: string): IPost[] {
+  // Полный путь к файлу
+  const filePath = path.join(mainDir, `${id}_Posts.json`);
+  try {
+    // Проверяем существование
+    if (!fs.existsSync(filePath)) {
+      console.log(`Файл не найден: ${filePath}`);
+      return [];
+    } else {
+      // Читаем и парсим
+      const rawData = fs.readFileSync(filePath, 'utf-8');
+      const data: IPost[] = JSON.parse(rawData);
+
+      return data;
+    }
+  } catch (error) {
+    console.log(`Ошибка чтения файла ${filePath}:`);
+    return [];
+  }
+}
+export function saveJsonShortCodes(
+  mainDir: string,
+  id: string,
+  shortCodes: IShortCode[],
+) {
+  // Полный путь к файлу
+  const filePath = path.join(mainDir, `${id}_ShortCodes.json`);
+
+  try {
+    fs.mkdirSync(mainDir, { recursive: true });
+    fs.writeFileSync(filePath, JSON.stringify(shortCodes), 'utf-8');
+  } catch (error) {
+    console.log(`Ошибка записи файла ${filePath}`);
+    console.log('error: ', error);
+    return [];
+  }
+}
+export function saveJsonPosts(mainDir: string, id: string, posts: IPost[]) {
+  // Полный путь к файлу
+  const filePath = path.join(mainDir, `${id}_Posts.json`);
+
+  try {
+    fs.mkdirSync(mainDir, { recursive: true });
+    fs.writeFileSync(filePath, JSON.stringify(posts), 'utf-8');
+  } catch (error) {
+    console.log(`Ошибка записи файла ${filePath}:`);
     return [];
   }
 }
