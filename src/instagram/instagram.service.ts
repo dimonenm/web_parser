@@ -16,7 +16,7 @@ import {
   saveJsonShortCodes,
   setAuthCookies,
 } from './instagram.utils';
-import { IPost, IShortCode, IStatusData } from './instagram.interfaces';
+import { IPost, IPostsStatusData, IShortCode, IStatusData } from './instagram.interfaces';
 
 @Injectable()
 export class InstagramService {
@@ -24,6 +24,7 @@ export class InstagramService {
 
   // поля класса
   private shortCodesArray: IShortCode[] = [];
+  private PostsArray: IPost[] = [];
   private seenShortCodes = new Set<string>();
   private countOfPosts: number = 0;
   private isRunningShortCodesSearch = false;
@@ -395,10 +396,32 @@ export class InstagramService {
       return JSON.stringify({ status: 'already_running' });
 
     this.isRunningPostSearch = true;
+    this.PostsArray = [];
 
-    this.getPosts(id);
+    this.getPosts(id)
+      .catch((e) => console.error('❌ getPosts:', e))
+      .finally(() => {
+        console.log('getPosts finally');
+        this.isRunningPostSearch = false;
+      });
 
     return JSON.stringify({ status: 'startGetAllPosts started', id });
+  }
+  getPostsStatus(): IPostsStatusData {
+    const status: IPostsStatusData = {
+      current: this.PostsArray.length,
+      total: this.shortCodesArray.length,
+      running: this.isRunningPostSearch,
+      posts: this.PostsArray,
+    };
+
+    console.log('Posts Status was send', {
+      current: status.current,
+      total: status.total,
+      running: status.running,
+    });
+
+    return status;
   }
 
   private async getShortCodesV2(id: string): Promise<void> {
@@ -513,7 +536,6 @@ export class InstagramService {
     }
   }
   private async getPosts(id: string): Promise<void> {
-    // Чтение файла с ShortCodes
     const savedPosts: IPost[] = readJsonPosts(this.mainDir, id);
     if (savedPosts.length > 0) return;
 
@@ -523,17 +545,11 @@ export class InstagramService {
       return;
     }
 
-    // Инициализация и настройка браузера
-    const browser = await puppeteer.launch({
-      headless: true,
-    });
+    const browser = await puppeteer.launch({ headless: true });
     await setAuthCookies(browser);
 
-    // Настройка страницы
-    // const page = await browser.newPage();
-    // await page.setViewport({ width: 1920, height: 1080 });
-
-    const posts: IPost[] = [];
+    // Пишем сразу в поле класса — его читает getPostsStatus()
+    this.PostsArray = [];
 
     let i = 0;
 
@@ -544,18 +560,18 @@ export class InstagramService {
         const post = await measure('getPUrls', () =>
           this.getPUrls(shortCode, browser),
         );
-        posts.push(post);
+        this.PostsArray.push(post);
       }
       if (shortCode.type === 'reel') {
         const post = await measure('getReelPicUrl', () =>
           this.getReelPicUrl(shortCode, browser),
         );
-        posts.push(post);
+        this.PostsArray.push(post);
       }
       i++;
     }
 
-    saveJsonPosts(this.mainDir, id, posts);
+    saveJsonPosts(this.mainDir, id, this.PostsArray);
   }
   async getShortCodesFile(id: string): Promise<IShortCode[]> {
     const savedShortCodes = readJsonShortCodes(this.mainDir, id);

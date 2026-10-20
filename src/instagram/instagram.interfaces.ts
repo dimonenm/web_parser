@@ -15,6 +15,10 @@ export interface IStatusData {
   running: boolean;
 }
 
+export interface IPostsStatusData extends IStatusData {
+  posts: IPost[];
+}
+
 export interface CookieObject {
   name: string;
   value: string;

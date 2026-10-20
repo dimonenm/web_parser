@@ -39,6 +39,10 @@ export class InstagramController {
   getShortCodesStatus() {
     return this.instagramService.getShortCodesStatus();
   }
+  @Get('get_posts_status')
+  getPostsStatus() {
+    return this.instagramService.getPostsStatus();
+  }
   @Get('get_short_codes_file')
   async getShortCodesFile(@Query('id') id: string) {
     return this.instagramService.getShortCodesFile(id);
