@@ -3,6 +3,10 @@ export interface IShortCode {
   shortCode: string;
 }
 
+export interface IGalleryItem extends IShortCode {
+  index: number; // позиция якоря в сетке, чтобы кликнуть по нему позже
+}
+
 export interface IPost {
   type: string;
   shortCode: string;

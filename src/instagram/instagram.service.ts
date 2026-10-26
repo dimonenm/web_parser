@@ -16,7 +16,13 @@ import {
   saveJsonShortCodes,
   setAuthCookies,
 } from './instagram.utils';
-import { IPost, IPostsStatusData, IShortCode, IStatusData } from './instagram.interfaces';
+import {
+  IGalleryItem,
+  IPost,
+  IPostsStatusData,
+  IShortCode,
+  IStatusData,
+} from './instagram.interfaces';
 
 @Injectable()
 export class InstagramService {
@@ -577,4 +583,150 @@ export class InstagramService {
     const savedShortCodes = readJsonShortCodes(this.mainDir, id);
     return savedShortCodes;
   }
+  async getAllPostsFromGallary(id: string): Promise<string> {
+    // Опредение адреса для запроса
+    const url = `https://www.instagram.com/${id}/`;
+
+    // Инициализация и настройка браузера
+    const browser = await puppeteer.launch({
+      headless: true,
+    });
+    await setAuthCookies(browser);
+
+    // Настройка страницы
+    const page = await browser.newPage();
+    await page.setViewport({ width: 1920, height: 1080 });
+
+    // Переход на сстраницу профиля
+    try {
+      await page.goto(url, { waitUntil: 'domcontentloaded' });
+      await deley(this.deleyCount);
+    } catch (e) {
+      console.log('Ошибка загрузки страницы:', (e as Error).message);
+    }
+
+    // Ожидание загрузки селектора для выбора элемента количества постов
+    try {
+      await page.waitForSelector('div:nth-child(1) > span > span > span', {
+        timeout: 10000,
+      });
+    } catch (e) {
+      console.warn('Селектор поста не найден.');
+    }
+
+    await makeScreenshot(page, 'getAllPostsFromGallary');
+
+    // Определение количества постов на странице
+    const postCount: number = await page.evaluate((): number => {
+      const elem: HTMLSpanElement | null = document.querySelector(
+        'div:nth-child(1) > span > span > span',
+      );
+
+      if (elem) {
+        return Number(elem.innerText);
+      } else {
+        return 0;
+      }
+    });
+
+    console.log('postCount: ', postCount);
+
+    // Извлекаем data внутри evaluate и возвращаем наружу
+    const gelleryItems: IGalleryItem[] = await page.evaluate(() => {
+      const items: IGalleryItem[] = [];
+      const seen = new Set<string>();
+
+      const elems: NodeListOf<HTMLAnchorElement> =
+        document.querySelectorAll('div.xg7h5cd a');
+
+      elems.forEach((a: HTMLAnchorElement, index: number) => {
+        const href = a.getAttribute('href');
+        if (!href) return;
+
+        // /p/CODE/ | /username/reel/CODE/ | /reel/CODE/ | /username/p/CODE/?img_index=2
+        const match = href.match(/\/(p|reel|reels|tv)\/([^/?#]+)/);
+        if (!match) return;
+
+        const shortCode = match[2];
+        if (seen.has(shortCode)) return; // сетка подгружается лениво — ссылки дублируются
+        seen.add(shortCode);
+
+        items.push({
+          type: match[1] === 'reel' ? 'reel' : match[1],
+          shortCode,
+          index,
+        });
+      });
+
+      return items;
+    });
+
+    console.log('gelleryItems: ', gelleryItems);
+
+    if (!gelleryItems.length) {
+      await browser.close();
+      return JSON.stringify([]);
+    }
+
+    for (const item of gelleryItems) {
+      if (item.type === 'p') {
+        
+        await page.evaluate((i: number) => {
+          const a =
+            document.querySelectorAll<HTMLAnchorElement>('div.xg7h5cd a')[i];
+          a?.click();
+        }, item.index);
+  
+        await deley(this.deleyCount);
+  
+        const imgCount = await page.evaluate(
+          () => {
+            document.querySelectorAll('div._acnb').length
+          }
+        );
+        console.log('imgCount: ', imgCount);
+  
+        // ...стрелки + src, как в step3
+      }
+    }
+
+    await makeScreenshot(page, 'step2');
+
+    const step3 = await page.evaluate(async () => {
+      const arrowFor = document.querySelector<HTMLButtonElement>(
+        'button._afxw._al46._al47',
+      );
+      arrowFor?.click();
+
+      await new Promise((resolve) => setTimeout(resolve, 500));
+
+      const img = document.querySelectorAll<HTMLImageElement>(
+        'ul img.x5yr21d.xu96u03.x10l6tqk.x13vifvy.x87ps6o.xh8yej3',
+      );
+      return Array.from(img).map((item) => item.src);
+    });
+
+    console.log('step1: ');
+    console.log('step3: ', step3);
+
+    await browser.close();
+
+    return JSON.stringify(step3);
+  }
+
+  //const posts = document.querySelectorAll('div.xg7h5cd a');
+
+  //posts[1].click()
+
+  //const arrowFor = document.querySelector('button._afxw._al46._al47')
+
+  //const arrowBack = document.querySelector('button._afxv._al46._al47')
+
+  //arrowFor.click();
+
+  //arrowBack.click();
+
+  //const img = document.querySelectorAll('ul img.x5yr21d.xu96u03.x10l6tqk.x13vifvy.x87ps6o.xh8yej3')
+
+  //const elements = document.querySelectorAll('div._acnb')
 }

@@ -47,4 +47,9 @@ export class InstagramController {
   async getShortCodesFile(@Query('id') id: string) {
     return this.instagramService.getShortCodesFile(id);
   }
+  
+  @Get('get_all_posts_from_gallary')
+  async getAllPostsFromGallary(@Query('id') id: string) {
+    return this.instagramService.getAllPostsFromGallary(id);
+  }
 }
