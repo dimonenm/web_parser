@@ -12,6 +12,7 @@ import {
   readJsonData,
   readJsonPosts,
   readJsonShortCodes,
+  saveJsonFile,
   saveJsonPosts,
   saveJsonShortCodes,
   setAuthCookies,
@@ -614,14 +615,11 @@ export class InstagramService {
       console.warn('Селектор поста не найден.');
     }
 
-    await makeScreenshot(page, 'getAllPostsFromGallary');
-
     // Определение количества постов на странице
     const postCount: number = await page.evaluate((): number => {
       const elem: HTMLSpanElement | null = document.querySelector(
         'div:nth-child(1) > span > span > span',
       );
-
       if (elem) {
         return Number(elem.innerText);
       } else {
@@ -631,102 +629,185 @@ export class InstagramService {
 
     console.log('postCount: ', postCount);
 
-    // Извлекаем data внутри evaluate и возвращаем наружу
-    const gelleryItems: IGalleryItem[] = await page.evaluate(() => {
-      const items: IGalleryItem[] = [];
-      const seen = new Set<string>();
+    // --- Множества для отслеживания обработанных постов ---
+    const processedShortCodes = new Set<string>();
+    const posts: IPost[] = [];
 
-      const elems: NodeListOf<HTMLAnchorElement> =
-        document.querySelectorAll('div.xg7h5cd a');
+    // --- Основной цикл: сбор → обработка → прокрутка → повтор ---
+    let stableRounds = 0;
+    const maxScrolls = Math.ceil(postCount / 12) + 20;
 
-      elems.forEach((a: HTMLAnchorElement, index: number) => {
-        const href = a.getAttribute('href');
-        if (!href) return;
+    for (let s = 0; s < maxScrolls; s++) {
+      console.log(`--- Раунд прокрутки ${s + 1} ---`);
 
-        // /p/CODE/ | /username/reel/CODE/ | /reel/CODE/ | /username/p/CODE/?img_index=2
-        const match = href.match(/\/(p|reel|reels|tv)\/([^/?#]+)/);
-        if (!match) return;
+      // 1. Сбор видимых постов
+      const gelleryItems: IGalleryItem[] = await page.evaluate(() => {
+        const items: IGalleryItem[] = [];
+        const seen = new Set<string>();
 
-        const shortCode = match[2];
-        if (seen.has(shortCode)) return; // сетка подгружается лениво — ссылки дублируются
-        seen.add(shortCode);
+        const elems: NodeListOf<HTMLAnchorElement> =
+          document.querySelectorAll('div.xg7h5cd a');
 
-        items.push({
-          type: match[1] === 'reel' ? 'reel' : match[1],
-          shortCode,
-          index,
+        elems.forEach((a: HTMLAnchorElement, index: number) => {
+          const href = a.getAttribute('href');
+          if (!href) return;
+
+          const match = href.match(/\/(p|reel|reels|tv)\/([^/?#]+)/);
+          if (!match) return;
+
+          const shortCode = match[2];
+          if (seen.has(shortCode)) return;
+          seen.add(shortCode);
+
+          // Превью: a > div._aagu > div._aagv > img
+          const previewImg: HTMLImageElement | null = a.querySelector(
+            'div._aagu > div._aagv > img',
+          );
+          const previewUrl = previewImg
+            ? previewImg.currentSrc || previewImg.src
+            : '';
+
+          items.push({
+            type: match[1] === 'reel' ? 'reel' : match[1],
+            shortCode,
+            index,
+            previewUrl,
+          });
         });
+
+        return items;
       });
 
-      return items;
-    });
+      console.log(`Найдено элементов в сетке: ${gelleryItems.length}`);
 
-    console.log('gelleryItems: ', gelleryItems);
+      // 2. Обработка постов
+      let processedThisRound = 0;
 
-    if (!gelleryItems.length) {
-      await browser.close();
-      return JSON.stringify([]);
-    }
+      for (const item of gelleryItems) {
+        if (processedShortCodes.has(item.shortCode)) continue;
 
-    for (const item of gelleryItems) {
-      if (item.type === 'p') {
-        
+        // Reel: превью уже в сетке, модалку не открываем
+        if (item.type !== 'p') {
+          if (!item.previewUrl) {
+            // картинка ещё не отрисовалась (ленивая загрузка) — догоним в следующем раунде
+            continue;
+          }
+          processedShortCodes.add(item.shortCode);
+          processedThisRound++;
+          posts.push({
+            type: item.type,
+            shortCode: item.shortCode,
+            picUrls: [item.previewUrl],
+          });
+          console.log(`Рил ${item.shortCode}: превью получено`);
+          continue;
+        }
+
+        // Пост с изображениями: открываем модалку (дальше — без изменений)
+        processedShortCodes.add(item.shortCode);
+        processedThisRound++;
+
+        // Клик по якорю поста в сетке
         await page.evaluate((i: number) => {
           const a =
             document.querySelectorAll<HTMLAnchorElement>('div.xg7h5cd a')[i];
           a?.click();
         }, item.index);
-  
+
         await deley(this.deleyCount);
-  
-        const imgCount = await page.evaluate(
-          () => {
-            document.querySelectorAll('div._acnb').length
-          }
+
+        // Ожидаем модальное окно
+        try {
+          await page.waitForSelector('div[role="dialog"]', { timeout: 8000 });
+        } catch {
+          console.warn(`Модальное окно не открылось для ${item.shortCode}`);
+          // Пытаемся закрыть и продолжить
+          try {
+            await page.keyboard.press('Escape');
+            await deley(this.deleyCount);
+          } catch {}
+          continue;
+        }
+
+        // Количество слайдов
+        const imgCount: number = await page.evaluate(
+          () => document.querySelectorAll('div._acnb').length,
         );
-        console.log('imgCount: ', imgCount);
-  
-        // ...стрелки + src, как в step3
+
+        console.log(`Пост ${item.shortCode}: слайдов = ${imgCount}`);
+
+        // Сбор URL изображений
+        const picsurl: string[] = [];
+        const seenSrc = new Set<string>();
+
+        const collectSrc = async (): Promise<void> => {
+          const srcs: string[] = await page.evaluate(() => {
+            const imgs = document.querySelectorAll<HTMLImageElement>(
+              'ul img.x5yr21d.xu96u03.x10l6tqk.x13vifvy.x87ps6o.xh8yej3',
+            );
+            return Array.from(imgs).map((el) => el.src);
+          });
+          for (const src of srcs) {
+            if (src && !seenSrc.has(src)) {
+              seenSrc.add(src);
+              picsurl.push(src);
+            }
+          }
+        };
+
+        await collectSrc();
+
+        // Листание по стрелке вперёд
+        for (let slide = 1; slide < imgCount; slide++) {
+          await page.evaluate(() => {
+            const arrow = document.querySelector<HTMLButtonElement>(
+              'button._afxw._al46._al47',
+            );
+            arrow?.click();
+          });
+          await deley(this.deleyCount);
+          await collectSrc();
+        }
+
+        console.log(`  picsurl собрано: ${picsurl.length}`);
+        posts.push({
+          type: item.type,
+          shortCode: item.shortCode,
+          picUrls: picsurl,
+        });
+
+        // Закрытие модалки
+        await page.keyboard.press('Escape');
+        await deley(this.deleyCount);
       }
+
+      console.log(`Обработано всего постов: ${posts.length}`);
+
+      // 3. Раунд не дал ни одного нового поста — лента на исходе
+      if (processedThisRound === 0) {
+        stableRounds++;
+        if (stableRounds >= 3) {
+          console.log('Лента больше не грузится, выходим из цикла');
+          break;
+        }
+      } else {
+        stableRounds = 0;
+      }
+
+      // 4. Прокрутка вниз для загрузки новых постов
+      await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+      await deley(this.deleyCount);
     }
 
-    await makeScreenshot(page, 'step2');
+    console.log('Итого постов с картинками:', posts.length);
 
-    const step3 = await page.evaluate(async () => {
-      const arrowFor = document.querySelector<HTMLButtonElement>(
-        'button._afxw._al46._al47',
-      );
-      arrowFor?.click();
-
-      await new Promise((resolve) => setTimeout(resolve, 500));
-
-      const img = document.querySelectorAll<HTMLImageElement>(
-        'ul img.x5yr21d.xu96u03.x10l6tqk.x13vifvy.x87ps6o.xh8yej3',
-      );
-      return Array.from(img).map((item) => item.src);
-    });
-
-    console.log('step1: ');
-    console.log('step3: ', step3);
-
+    // await makeScreenshot(page, 'getAllPostsFromGallary_done');
     await browser.close();
 
-    return JSON.stringify(step3);
+    if (posts.length) {
+      saveJsonFile(this.mainDir, `${id}_Gallery`, posts);
+    }
+
+    return JSON.stringify(posts);
   }
-
-  //const posts = document.querySelectorAll('div.xg7h5cd a');
-
-  //posts[1].click()
-
-  //const arrowFor = document.querySelector('button._afxw._al46._al47')
-
-  //const arrowBack = document.querySelector('button._afxv._al46._al47')
-
-  //arrowFor.click();
-
-  //arrowBack.click();
-
-  //const img = document.querySelectorAll('ul img.x5yr21d.xu96u03.x10l6tqk.x13vifvy.x87ps6o.xh8yej3')
-
-  //const elements = document.querySelectorAll('div._acnb')
 }

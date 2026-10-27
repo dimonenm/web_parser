@@ -222,6 +222,21 @@ export function saveJsonPosts(mainDir: string, id: string, posts: IPost[]) {
     return [];
   }
 }
+export function saveJsonFile<T>(
+  mainDir: string,
+  fileName: string, // например `${id}_Gallery`
+  fileData: T[],
+) {
+  const filePath = path.join(mainDir, `${fileName}.json`);
+
+  try {
+    fs.mkdirSync(mainDir, { recursive: true });
+    fs.writeFileSync(filePath, JSON.stringify(fileData), 'utf-8');
+  } catch (error) {
+    console.log(`Ошибка записи файла ${filePath}:`);
+    console.log('error: ', error);
+  }
+}
 
 export async function deley(ms: number) {
   await new Promise((resolve) => setTimeout(resolve, ms));
