@@ -4,6 +4,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import {
   deley,
+  formatDuration,
   getLastQueryParam,
   hasLastParam,
   makeHTMLFile,
@@ -27,7 +28,7 @@ import {
 
 @Injectable()
 export class InstagramService {
-  private deleyCount = 1000;
+  private deleyCount = 500;
 
   // поля класса
   private shortCodesArray: IShortCode[] = [];
@@ -588,6 +589,9 @@ export class InstagramService {
     // Опредение адреса для запроса
     const url = `https://www.instagram.com/${id}/`;
 
+    // Общий таймер обработки галереи
+    const galleryStart = Date.now();
+
     // Инициализация и настройка браузера
     const browser = await puppeteer.launch({
       headless: true,
@@ -686,6 +690,8 @@ export class InstagramService {
       for (const item of gelleryItems) {
         if (processedShortCodes.has(item.shortCode)) continue;
 
+        const postStart = Date.now();
+
         // Reel: превью уже в сетке, модалку не открываем
         if (item.type !== 'p') {
           if (!item.previewUrl) {
@@ -699,7 +705,9 @@ export class InstagramService {
             shortCode: item.shortCode,
             picUrls: [item.previewUrl],
           });
-          console.log(`Рил ${item.shortCode}: превью получено`);
+          console.log(
+            `Рил ${item.shortCode}: превью получено, время: ${formatDuration(Date.now() - postStart)}`,
+          );
           continue;
         }
 
@@ -720,7 +728,9 @@ export class InstagramService {
         try {
           await page.waitForSelector('div[role="dialog"]', { timeout: 8000 });
         } catch {
-          console.warn(`Модальное окно не открылось для ${item.shortCode}`);
+          console.warn(
+            `Модальное окно не открылось для ${item.shortCode}, время: ${formatDuration(Date.now() - postStart)}`,
+          );
           // Пытаемся закрыть и продолжить
           try {
             await page.keyboard.press('Escape');
@@ -742,10 +752,20 @@ export class InstagramService {
 
         const collectSrc = async (): Promise<void> => {
           const srcs: string[] = await page.evaluate(() => {
-            const imgs = document.querySelectorAll<HTMLImageElement>(
+            // Карусель: слайды лежат внутри <ul>
+            const carouselImgs = document.querySelectorAll<HTMLImageElement>(
               'ul img.x5yr21d.xu96u03.x10l6tqk.x13vifvy.x87ps6o.xh8yej3',
             );
-            return Array.from(imgs).map((el) => el.src);
+            if (carouselImgs.length > 0) {
+              return Array.from(carouselImgs).map(
+                (el) => el.currentSrc || el.src,
+              );
+            }
+            // Одиночное изображение: <ul> не рендерится, ищем картинку прямо в модалке
+            const singleImgs = document.querySelectorAll<HTMLImageElement>(
+              'div[role="dialog"] img.xu96u03',
+            );
+            return Array.from(singleImgs).map((el) => el.currentSrc || el.src);
           });
           for (const src of srcs) {
             if (src && !seenSrc.has(src)) {
@@ -769,7 +789,9 @@ export class InstagramService {
           await collectSrc();
         }
 
-        console.log(`  picsurl собрано: ${picsurl.length}`);
+        console.log(
+          `  picsurl собрано: ${picsurl.length}, время поста: ${formatDuration(Date.now() - postStart)}`,
+        );
         posts.push({
           type: item.type,
           shortCode: item.shortCode,
@@ -800,6 +822,9 @@ export class InstagramService {
     }
 
     console.log('Итого постов с картинками:', posts.length);
+    console.log(
+      `Общее время обработки галереи: ${formatDuration(Date.now() - galleryStart)}`,
+    );
 
     // await makeScreenshot(page, 'getAllPostsFromGallary_done');
     await browser.close();

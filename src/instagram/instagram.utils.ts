@@ -241,3 +241,16 @@ export function saveJsonFile<T>(
 export async function deley(ms: number) {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
+
+// Форматирование длительности: 850 -> "850 мс", 3400 -> "3.400 с", 65000 -> "1 мин 5 с"
+export function formatDuration(ms: number): string {
+  if (ms < 1000) return `${ms} мс`;
+
+  const seconds = Math.floor(ms / 1000);
+  if (seconds < 60) {
+    return `${seconds}.${String(ms % 1000).padStart(3, '0')} с`;
+  }
+
+  const minutes = Math.floor(seconds / 60);
+  return `${minutes} мин ${seconds % 60} с`;
+}
