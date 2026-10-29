@@ -1,7 +1,7 @@
-import { IPost, IShortCode } from './instagram.interfaces';
+import { Browser, Page } from 'puppeteer';
 import * as path from 'path';
 import * as fs from 'fs';
-import { Browser, Page } from 'puppeteer';
+import { IPost } from './instagram.interfaces';
 
 // Скриншот
 export async function makeScreenshot(
@@ -22,45 +22,6 @@ export async function makeHTMLFile(
   fs.mkdirSync(path.dirname(outputPath), { recursive: true });
   const html = await page.content();
   fs.writeFileSync(outputPath, html, 'utf-8');
-}
-
-export function getLastQueryParam(url: string): string | null {
-  const query = url.split('?')[1];
-  if (!query) return null;
-  return query.split('&').pop() || null;
-}
-
-export function hasLastParam(
-  linksSet: Set<string>,
-  expectedParam: string | null,
-): boolean {
-  for (const url of linksSet) {
-    const lastParam = url.split('?')[1]?.split('&').pop();
-    if (lastParam === expectedParam) {
-      return true;
-    }
-  }
-  return false;
-}
-
-export async function measure<T>(
-  name: string,
-  fn: () => Promise<T>,
-): Promise<T> {
-  // Замеряем ресурсы до запуска
-  const startTime = Date.now();
-
-  // Выполняем функцию
-  const result = await fn();
-
-  // Замеряем ресурсы после
-  const endTime = Date.now();
-
-  // Выводим результат
-  console.log(`\n📊 ${name}:`);
-  console.log(`  ⏱  Время:  ${endTime - startTime} мс`);
-
-  return result;
 }
 
 export async function setAuthCookies(browser: Browser) {
@@ -153,75 +114,7 @@ export function readJsonData(fileName: string): IPost[] {
 
   return data;
 }
-export function readJsonShortCodes(mainDir: string, id: string): IShortCode[] {
-  // Полный путь к файлу
-  const filePath = path.join(mainDir, `${id}_ShortCodes.json`);
-  try {
-    // Проверяем существование
-    if (!fs.existsSync(filePath)) {
-      console.log(`Файл не найден: ${filePath}`);
-      return [];
-    } else {
-      // Читаем и парсим
-      const rawData = fs.readFileSync(filePath, 'utf-8');
-      const data: IShortCode[] = JSON.parse(rawData);
 
-      return data;
-    }
-  } catch (error) {
-    console.log(`Ошибка чтения файла ${filePath}:`);
-    return [];
-  }
-}
-export function readJsonPosts(mainDir: string, id: string): IPost[] {
-  // Полный путь к файлу
-  const filePath = path.join(mainDir, `${id}_Posts.json`);
-  try {
-    // Проверяем существование
-    if (!fs.existsSync(filePath)) {
-      console.log(`Файл не найден: ${filePath}`);
-      return [];
-    } else {
-      // Читаем и парсим
-      const rawData = fs.readFileSync(filePath, 'utf-8');
-      const data: IPost[] = JSON.parse(rawData);
-
-      return data;
-    }
-  } catch (error) {
-    console.log(`Ошибка чтения файла ${filePath}:`);
-    return [];
-  }
-}
-export function saveJsonShortCodes(
-  mainDir: string,
-  id: string,
-  shortCodes: IShortCode[],
-) {
-  // Полный путь к файлу
-  const filePath = path.join(mainDir, `${id}_ShortCodes.json`);
-
-  try {
-    fs.mkdirSync(mainDir, { recursive: true });
-    fs.writeFileSync(filePath, JSON.stringify(shortCodes), 'utf-8');
-  } catch (error) {
-    console.log(`Ошибка записи файла ${filePath}`);
-    console.log('error: ', error);
-    return [];
-  }
-}
-export function saveJsonPosts(mainDir: string, id: string, posts: IPost[]) {
-  // Полный путь к файлу
-  const filePath = path.join(mainDir, `${id}_Posts.json`);
-
-  try {
-    fs.mkdirSync(mainDir, { recursive: true });
-    fs.writeFileSync(filePath, JSON.stringify(posts), 'utf-8');
-  } catch (error) {
-    console.log(`Ошибка записи файла ${filePath}:`);
-    return [];
-  }
-}
 export function saveJsonFile<T>(
   mainDir: string,
   fileName: string, // например `${id}_Gallery`

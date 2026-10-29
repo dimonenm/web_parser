@@ -1,11 +1,8 @@
-export interface IShortCode {
+export interface IGalleryItem {
   type: string;
   shortCode: string;
-}
-
-export interface IGalleryItem extends IShortCode {
+  picUrls: string[];
   index: number; // позиция якоря в сетке, чтобы кликнуть по нему позже
-  previewUrl?: string; // src превью-картинки (для reel берём прямо из сетки)
 }
 
 export interface IPost {
@@ -18,15 +15,4 @@ export interface IStatusData {
   current: number;
   total: number;
   running: boolean;
-}
-
-export interface IPostsStatusData extends IStatusData {
-  posts: IPost[];
-}
-
-export interface CookieObject {
-  name: string;
-  value: string;
-  domain: string;
-  path: string;
 }
