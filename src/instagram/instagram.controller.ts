@@ -1,5 +1,6 @@
 import { Controller, Get, Param, Query } from '@nestjs/common'
 import { InstagramService } from './instagram.service'
+import { IStatusData } from './instagram.interfaces'
 
 @Controller('instagram')
 export class InstagramController {
@@ -9,7 +10,7 @@ export class InstagramController {
   getPostsStatus() {
     return this.instagramService.getPostsStatus();
   }
-  
+
   @Get('get_all_posts_from_gallary')
   async getAllPostsFromGallary(@Query('id') id: string) {
     return this.instagramService.getAllPostsFromGallary(id);

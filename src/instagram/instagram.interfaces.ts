@@ -12,7 +12,15 @@ export interface IPost {
 }
 
 export interface IStatusData {
-  current: number;
-  total: number;
-  running: boolean;
+  id: string; // профиль, который обрабатывается сейчас
+  running: boolean; // идёт ли парсинг
+  current: number; // собрано постов
+  total: number; // всего постов в профиле (0 — пока неизвестно)
+  scanned: number; // просмотрено постов, включая пропущенные
+  round: number; // текущий раунд прокрутки
+  lastShortCode: string | null;
+  startedAt: number | null;
+  finishedAt: number | null;
+  elapsedMs: number; // сколько длится/продолжалась обработка
+  error: string | null;
 }
