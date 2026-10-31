@@ -64,7 +64,7 @@ export class InstagramService {
     this.status = { ...this.status, ...patch };
   }
 
-    async getAllPostsFromGallary(id: string): Promise<string> {
+  async getAllPostsFromGallary(id: string): Promise<string> {
     // Опредение адреса для запроса
     const url = `https://www.instagram.com/${id}/`;
 
@@ -260,7 +260,9 @@ export class InstagramService {
               const singleImgs = document.querySelectorAll<HTMLImageElement>(
                 'div[role="dialog"] img.xu96u03',
               );
-              return Array.from(singleImgs).map((el) => el.currentSrc || el.src);
+              return Array.from(singleImgs).map(
+                (el) => el.currentSrc || el.src,
+              );
             });
             for (const src of srcs) {
               if (src && !seenSrc.has(src)) {
@@ -317,7 +319,9 @@ export class InstagramService {
         }
 
         // 4. Прокрутка вниз для загрузки новых постов
-        await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+        await page.evaluate(() =>
+          window.scrollTo(0, document.body.scrollHeight),
+        );
         await deley(this.deleyCount);
       }
 
@@ -343,5 +347,4 @@ export class InstagramService {
       this.patchStatus({ running: false, finishedAt: Date.now() });
     }
   }
-
 }
