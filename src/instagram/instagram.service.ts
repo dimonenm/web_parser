@@ -223,6 +223,7 @@ export class InstagramService {
           try {
             await page.waitForSelector('div[role="dialog"]', { timeout: 8000 });
           } catch {
+            await makeScreenshot(page, item.shortCode);
             console.warn(
               `Модальное окно не открылось для ${item.shortCode}, время: ${formatDuration(Date.now() - postStart)}`,
             );
