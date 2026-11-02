@@ -14,4 +14,9 @@ export class InstagramController {
   async getAllPostsFromGallary(@Query('id') id: string) {
     return this.instagramService.getAllPostsFromGallary(id);
   }
+
+  @Get('get_all_downloaded_posts')
+  async getAllDownloadedPosts() {
+    return this.instagramService.getAllDownloadedPosts();
+  }
 }

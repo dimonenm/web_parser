@@ -10,7 +10,12 @@ import {
   saveJsonFile,
   setAuthCookies,
 } from './instagram.utils';
-import { IGalleryItem, IPost, IStatusData } from './instagram.interfaces';
+import {
+  IDownloadedPosts,
+  IGalleryItem,
+  IPost,
+  IStatusData,
+} from './instagram.interfaces';
 
 @Injectable()
 export class InstagramService {
@@ -347,5 +352,49 @@ export class InstagramService {
       await browser?.close().catch(() => {});
       this.patchStatus({ running: false, finishedAt: Date.now() });
     }
+  }
+
+  /**
+   * Все ранее скачанные профили: читаем uploads/*_Gallery.json.
+   * id — имя профиля из имени файла, firstPicUrl — первая картинка первого поста.
+   */
+  async getAllDownloadedPosts(): Promise<IDownloadedPosts[]> {
+    let fileNames: string[] = [];
+
+    try {
+      fileNames = await fs.promises.readdir(this.mainDir);
+    } catch (e) {
+      // Папка uploads ещё не создана — скачанных профилей нет
+      console.warn(`Папка ${this.mainDir} недоступна: ${(e as Error).message}`);
+      return [];
+    }
+
+    const galleryFiles = fileNames.filter((name) =>
+      name.endsWith('_Gallery.json'),
+    );
+
+    const downloadedPosts: IDownloadedPosts[] = [];
+
+    for (const fileName of galleryFiles) {
+      const filePath = path.join(this.mainDir, fileName);
+      const id = fileName.replace(/_Gallery\.json$/, '');
+
+      try {
+        const rawData = await fs.promises.readFile(filePath, 'utf-8');
+        const posts: IPost[] = JSON.parse(rawData);
+        const firstPicUrl = posts?.[0]?.picUrls?.[0];
+
+        if (!id || !firstPicUrl) continue;
+
+        downloadedPosts.push({ id, firstPicUrl });
+      } catch (e) {
+        // Битый или недописанный файл не должен ронять весь список
+        console.warn(
+          `Не удалось прочитать ${filePath}: ${(e as Error).message}`,
+        );
+      }
+    }
+
+    return downloadedPosts;
   }
 }
