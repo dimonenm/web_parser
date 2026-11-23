@@ -1,5 +1,5 @@
-import { Controller, Get, Query } from '@nestjs/common'
-import { InstagramService } from './instagram.service'
+import { Controller, Get, Query } from '@nestjs/common';
+import { InstagramService } from './instagram.service';
 
 @Controller('instagram')
 export class InstagramController {
@@ -18,5 +18,10 @@ export class InstagramController {
   @Get('get_all_downloaded_posts')
   async getAllDownloadedPosts() {
     return this.instagramService.getAllDownloadedPosts();
+  }
+
+  @Get('get_downloaded_posts')
+  async getDownloadedPosts(@Query('id') id: string) {
+    return this.instagramService.getDownloadedPosts(id);
   }
 }

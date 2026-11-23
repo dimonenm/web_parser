@@ -397,4 +397,26 @@ export class InstagramService {
 
     return downloadedPosts;
   }
+
+  /**
+   * Ранее скачанный профиль по id: uploads/<id>_Gallery.json без изменений.
+   * Позволяет открыть уже собранную галерею, не перезапуская парсер.
+   */
+  async getDownloadedPosts(id: string): Promise<IPost[]> {
+    // id приходит из имени файла, но на вход подаётся строка из query —
+    // path.basename отсекает ../ и слеши
+    const safeId = path.basename(id);
+    if (!safeId) return [];
+
+    const filePath = path.join(this.mainDir, `${safeId}_Gallery.json`);
+
+    try {
+      const rawData = await fs.promises.readFile(filePath, 'utf-8');
+      const posts: unknown = JSON.parse(rawData);
+      return Array.isArray(posts) ? (posts as IPost[]) : [];
+    } catch (e) {
+      console.warn(`Не удалось прочитать ${filePath}: ${(e as Error).message}`);
+      return [];
+    }
+  }
 }
