@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, InternalServerErrorException } from '@nestjs/common';
 import puppeteer, { Browser, Page } from 'puppeteer';
 import * as path from 'path';
 import * as fs from 'fs';
@@ -418,5 +418,28 @@ export class InstagramService {
       console.warn(`Не удалось прочитать ${filePath}: ${(e as Error).message}`);
       return [];
     }
+  }
+
+  /**
+   * Удаляет скачанный профиль с диска: uploads/<id>_Gallery.json.
+   * id приходит из имени файла, но на вход подаётся строка из query —
+   * path.basename отсекает ../ и слеши
+   */
+  async deleteDownloadedPosts(
+    id: string,
+  ): Promise<{ id: string; deleted: boolean }> {
+    const safeId = path.basename(id ?? '');
+    if (!safeId) throw new BadRequestException('id не передан');
+
+    const filePath = path.join(this.mainDir, `${safeId}_Gallery.json`);
+
+    try {
+      await fs.promises.rm(filePath, { force: true });
+    } catch (e) {
+      console.warn(`Не удалось удалить ${filePath}: ${(e as Error).message}`);
+      throw new InternalServerErrorException('Не удалось удалить файл галереи');
+    }
+
+    return { id: safeId, deleted: true };
   }
 }

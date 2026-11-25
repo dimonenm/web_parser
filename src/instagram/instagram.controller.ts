@@ -1,4 +1,4 @@
-import { Controller, Get, Query } from '@nestjs/common';
+import { Controller, Delete, Get, Query } from '@nestjs/common';
 import { InstagramService } from './instagram.service';
 
 @Controller('instagram')
@@ -23,5 +23,10 @@ export class InstagramController {
   @Get('get_downloaded_posts')
   async getDownloadedPosts(@Query('id') id: string) {
     return this.instagramService.getDownloadedPosts(id);
+  }
+
+  @Delete('delete_downloaded_posts')
+  async deleteDownloadedPosts(@Query('id') id: string) {
+    return this.instagramService.deleteDownloadedPosts(id);
   }
 }
