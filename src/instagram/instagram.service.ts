@@ -1,7 +1,7 @@
-import { BadRequestException, Injectable, InternalServerErrorException } from '@nestjs/common';
-import puppeteer, { Browser, Page } from 'puppeteer';
-import * as path from 'path';
-import * as fs from 'fs';
+import { BadRequestException, Injectable, InternalServerErrorException } from '@nestjs/common'
+import puppeteer, { Browser, Page } from 'puppeteer'
+import * as path from 'path'
+import * as fs from 'fs'
 import {
   deley,
   formatDuration,
@@ -9,13 +9,13 @@ import {
   makeScreenshot,
   saveJsonFile,
   setAuthCookies,
-} from './instagram.utils';
+} from './instagram.utils'
 import {
   IDownloadedPosts,
   IGalleryItem,
   IPost,
   IStatusData,
-} from './instagram.interfaces';
+} from './instagram.interfaces'
 
 @Injectable()
 export class InstagramService {
@@ -33,20 +33,20 @@ export class InstagramService {
    * Возвращаем копию, чтобы нельзя было изменить внутреннее состояние.
    */
   getPostsStatus(): IStatusData {
-    const { startedAt, finishedAt } = this.status;
+    const { startedAt, finishedAt } = this.status
     const status: IStatusData = {
       ...this.status,
       elapsedMs: startedAt ? (finishedAt ?? Date.now()) - startedAt : 0,
-    };
+    }
 
     console.log('Posts Status was send', {
       id: status.id,
       current: status.current,
       total: status.total,
       running: status.running,
-    });
+    })
 
-    return status;
+    return status
   }
 
   private createIdleStatus(): IStatusData {
@@ -62,19 +62,19 @@ export class InstagramService {
       finishedAt: null,
       elapsedMs: 0,
       error: null,
-    };
+    }
   }
 
   private patchStatus(patch: Partial<IStatusData>): void {
-    this.status = { ...this.status, ...patch };
+    this.status = { ...this.status, ...patch }
   }
 
   async getAllPostsFromGallary(id: string): Promise<string> {
     // Опредение адреса для запроса
-    const url = `https://www.instagram.com/${id}/`;
+    const url = `https://www.instagram.com/${id}/`
 
     // Общий таймер обработки галереи
-    const galleryStart = Date.now();
+    const galleryStart = Date.now()
 
     // Стартуем обработку: клиент с этого момента видит running: true
     this.status = {
@@ -82,275 +82,277 @@ export class InstagramService {
       id,
       running: true,
       startedAt: galleryStart,
-    };
+    }
 
-    let browser: Browser | null = null;
+    let browser: Browser | null = null
 
     try {
       // Инициализация и настройка браузера
       browser = await puppeteer.launch({
         headless: true,
-      });
-      await setAuthCookies(browser);
+      })
+      await setAuthCookies(browser)
 
       // Настройка страницы
-      const page = await browser.newPage();
-      await page.setViewport({ width: 1920, height: 1080 });
+      const page = await browser.newPage()
+      await page.setViewport({ width: 1920, height: 1080 })
 
       // Переход на сстраницу профиля
       try {
-        await page.goto(url, { waitUntil: 'domcontentloaded' });
-        await deley(this.deleyCount);
+        await page.goto(url, { waitUntil: 'domcontentloaded' })
+        await deley(this.deleyCount)
       } catch (e) {
-        console.log('Ошибка загрузки страницы:', (e as Error).message);
+        console.log('Ошибка загрузки страницы:', (e as Error).message)
       }
 
       // Ожидание загрузки селектора для выбора элемента количества постов
       try {
         await page.waitForSelector('div:nth-child(1) > span > span > span', {
           timeout: 10000,
-        });
+        })
       } catch (e) {
-        console.warn('Селектор поста не найден.');
+        console.warn('Селектор поста не найден.')
       }
 
       // Определение количества постов на странице
       const postCount: number = await page.evaluate((): number => {
         const elem: HTMLSpanElement | null = document.querySelector(
           'div:nth-child(1) > span > span > span',
-        );
+        )
         if (elem) {
-          return Number(elem.innerText);
+          // Оставляем только цифры: "1 058" -> "1058", "1,058" -> "1058"
+          const digits = elem.innerText.replace(/\D/g, '')
+          return digits ? Number(digits) : 0
         } else {
-          return 0;
+          return 0
         }
-      });
+      })
 
-      console.log('postCount: ', postCount);
-      this.patchStatus({ total: postCount });
+      console.log('postCount: ', postCount)
+      this.patchStatus({ total: postCount })
 
       // --- Множества для отслеживания обработанных постов ---
-      const processedShortCodes = new Set<string>();
-      const posts: IPost[] = [];
+      const processedShortCodes = new Set<string>()
+      const posts: IPost[] = []
 
       // --- Основной цикл: сбор → обработка → прокрутка → повтор ---
-      let stableRounds = 0;
-      const maxScrolls = Math.ceil(postCount / 12) + 20;
+      let stableRounds = 0
+      const maxScrolls = Math.ceil(postCount / 12) + 20
 
       for (let s = 0; s < maxScrolls; s++) {
-        console.log(`--- Раунд прокрутки ${s + 1} ---`);
-        this.patchStatus({ round: s + 1 });
+        console.log(`--- Раунд прокрутки ${s + 1} ---`)
+        this.patchStatus({ round: s + 1 })
 
         // 1. Сбор видимых постов
         const gelleryItems: IGalleryItem[] = await page.evaluate(() => {
-          const items: IGalleryItem[] = [];
-          const seen = new Set<string>();
+          const items: IGalleryItem[] = []
+          const seen = new Set<string>()
 
           const elems: NodeListOf<HTMLAnchorElement> =
-            document.querySelectorAll('div.xg7h5cd a');
+            document.querySelectorAll('div.xg7h5cd a')
 
           elems.forEach((a: HTMLAnchorElement, index: number) => {
-            const href = a.getAttribute('href');
-            if (!href) return;
+            const href = a.getAttribute('href')
+            if (!href) return
 
-            const match = href.match(/\/(p|reel|reels|tv)\/([^/?#]+)/);
-            if (!match) return;
+            const match = href.match(/\/(p|reel|reels|tv)\/([^/?#]+)/)
+            if (!match) return
 
-            const shortCode: string = match[2];
-            if (seen.has(shortCode)) return;
-            seen.add(shortCode);
+            const shortCode: string = match[2]
+            if (seen.has(shortCode)) return
+            seen.add(shortCode)
 
             // Превью: все отрисованные картинки внутри якоря сетки
             const previewImgs = Array.from(
               a.querySelectorAll<HTMLImageElement>('div._aagu img'),
-            );
+            )
             const picUrls: string[] = previewImgs
               .map((img) => img.currentSrc || img.src)
-              .filter((src) => Boolean(src));
+              .filter((src) => Boolean(src))
 
             items.push({
               type: match[1] === 'p' ? 'p' : 'reel',
               shortCode,
               index,
               picUrls,
-            });
-          });
+            })
+          })
 
-          return items;
-        });
+          return items
+        })
 
         // 2. Обработка постов
-        let processedThisRound = 0;
+        let processedThisRound = 0
 
         for (const item of gelleryItems) {
-          if (processedShortCodes.has(item.shortCode)) continue;
+          if (processedShortCodes.has(item.shortCode)) continue
 
-          const postStart = Date.now();
+          const postStart = Date.now()
 
           // Reel: превью уже в сетке (item.picUrls), модалку не открываем
           if (item.type !== 'p') {
             if (item.picUrls.length === 0) {
               // картинка ещё не отрисовалась (ленивая загрузка) — догоним в следующем раунде
-              continue;
+              continue
             }
-            processedShortCodes.add(item.shortCode);
-            processedThisRound++;
+            processedShortCodes.add(item.shortCode)
+            processedThisRound++
             posts.push({
               type: item.type,
               shortCode: item.shortCode,
               picUrls: item.picUrls,
-            });
+            })
             this.patchStatus({
               current: posts.length,
               scanned: processedShortCodes.size,
               lastShortCode: item.shortCode,
-            });
+            })
             console.log(
               `Рил ${item.shortCode}: превью получено (${item.picUrls.length} шт.), время: ${formatDuration(Date.now() - postStart)}`,
-            );
-            continue;
+            )
+            continue
           }
 
           // Пост с изображениями: открываем модалку (дальше — без изменений)
-          processedShortCodes.add(item.shortCode);
-          processedThisRound++;
+          processedShortCodes.add(item.shortCode)
+          processedThisRound++
 
           // Клик по якорю поста в сетке
           await page.evaluate((i: number) => {
             const a =
-              document.querySelectorAll<HTMLAnchorElement>('div.xg7h5cd a')[i];
-            a?.click();
-          }, item.index);
+              document.querySelectorAll<HTMLAnchorElement>('div.xg7h5cd a')[i]
+            a?.click()
+          }, item.index)
 
-          await deley(this.deleyCount);
+          await deley(this.deleyCount)
 
           // Ожидаем модальное окно
           try {
-            await page.waitForSelector('div[role="dialog"]', { timeout: 8000 });
+            await page.waitForSelector('div[role="dialog"]', { timeout: 8000 })
           } catch {
-            await makeScreenshot(page, item.shortCode);
+            await makeScreenshot(page, item.shortCode)
             console.warn(
               `Модальное окно не открылось для ${item.shortCode}, время: ${formatDuration(Date.now() - postStart)}`,
-            );
+            )
             // Пытаемся закрыть и продолжить
             try {
-              await page.keyboard.press('Escape');
-              await deley(this.deleyCount);
-            } catch {}
-            continue;
+              await page.keyboard.press('Escape')
+              await deley(this.deleyCount)
+            } catch { }
+            continue
           }
 
           // Количество слайдов
           const imgCount: number = await page.evaluate(
             () => document.querySelectorAll('div._acnb').length,
-          );
+          )
 
-          console.log(`Пост ${item.shortCode}: слайдов = ${imgCount}`);
+          console.log(`Пост ${item.shortCode}: слайдов = ${imgCount}`)
 
           // Сбор URL изображений
-          const picsurl: string[] = [];
-          const seenSrc = new Set<string>();
+          const picsurl: string[] = []
+          const seenSrc = new Set<string>()
 
           const collectSrc = async (): Promise<void> => {
             const srcs: string[] = await page.evaluate(() => {
               // Карусель: слайды лежат внутри <ul>
               const carouselImgs = document.querySelectorAll<HTMLImageElement>(
                 'ul img.x5yr21d.xu96u03.x10l6tqk.x13vifvy.x87ps6o.xh8yej3',
-              );
+              )
               if (carouselImgs.length > 0) {
                 return Array.from(carouselImgs).map(
                   (el) => el.currentSrc || el.src,
-                );
+                )
               }
               // Одиночное изображение: <ul> не рендерится, ищем картинку прямо в модалке
               const singleImgs = document.querySelectorAll<HTMLImageElement>(
                 'div[role="dialog"] img.xu96u03',
-              );
+              )
               return Array.from(singleImgs).map(
                 (el) => el.currentSrc || el.src,
-              );
-            });
+              )
+            })
             for (const src of srcs) {
               if (src && !seenSrc.has(src)) {
-                seenSrc.add(src);
-                picsurl.push(src);
+                seenSrc.add(src)
+                picsurl.push(src)
               }
             }
-          };
+          }
 
-          await collectSrc();
+          await collectSrc()
 
           // Листание по стрелке вперёд
           for (let slide = 1; slide < imgCount; slide++) {
             await page.evaluate(() => {
               const arrow = document.querySelector<HTMLButtonElement>(
                 'button._afxw._al46._al47',
-              );
-              arrow?.click();
-            });
-            await deley(this.deleyCount);
-            await collectSrc();
+              )
+              arrow?.click()
+            })
+            await deley(this.deleyCount)
+            await collectSrc()
           }
 
           console.log(
             `  picsurl собрано: ${picsurl.length}, время поста: ${formatDuration(Date.now() - postStart)}`,
-          );
+          )
           posts.push({
             type: item.type,
             shortCode: item.shortCode,
             picUrls: picsurl,
-          });
+          })
           this.patchStatus({
             current: posts.length,
             scanned: processedShortCodes.size,
             lastShortCode: item.shortCode,
-          });
+          })
 
           // Закрытие модалки
-          await page.keyboard.press('Escape');
-          await deley(this.deleyCount);
+          await page.keyboard.press('Escape')
+          await deley(this.deleyCount)
         }
 
-        console.log(`Обработано всего постов: ${posts.length}`);
+        console.log(`Обработано всего постов: ${posts.length}`)
 
         // 3. Раунд не дал ни одного нового поста — лента на исходе
         if (processedThisRound === 0) {
-          stableRounds++;
+          stableRounds++
           if (stableRounds >= 3) {
-            console.log('Лента больше не грузится, выходим из цикла');
-            break;
+            console.log('Лента больше не грузится, выходим из цикла')
+            break
           }
         } else {
-          stableRounds = 0;
+          stableRounds = 0
         }
 
         // 4. Прокрутка вниз для загрузки новых постов
         await page.evaluate(() =>
           window.scrollTo(0, document.body.scrollHeight),
-        );
-        await deley(this.deleyCount);
+        )
+        await deley(this.deleyCount)
       }
 
-      console.log('Итого постов с картинками:', posts.length);
+      console.log('Итого постов с картинками:', posts.length)
       console.log(
         `Общее время обработки галереи: ${formatDuration(Date.now() - galleryStart)}`,
-      );
+      )
 
       // await makeScreenshot(page, 'getAllPostsFromGallary_done');
 
       if (posts.length) {
-        saveJsonFile(this.mainDir, `${id}_Gallery`, posts);
+        saveJsonFile(this.mainDir, `${id}_Gallery`, posts)
       }
 
-      return JSON.stringify(posts);
+      return JSON.stringify(posts)
     } catch (e) {
-      this.patchStatus({ error: (e as Error).message });
-      throw e;
+      this.patchStatus({ error: (e as Error).message })
+      throw e
     } finally {
       // close() был в теле метода — переносим сюда, чтобы браузер не оставлялся
       // висеть при исключении, а running гарантированно сбрасывался
-      await browser?.close().catch(() => {});
-      this.patchStatus({ running: false, finishedAt: Date.now() });
+      await browser?.close().catch(() => { })
+      this.patchStatus({ running: false, finishedAt: Date.now() })
     }
   }
 
@@ -359,43 +361,43 @@ export class InstagramService {
    * id — имя профиля из имени файла, firstPicUrl — первая картинка первого поста.
    */
   async getAllDownloadedPosts(): Promise<IDownloadedPosts[]> {
-    let fileNames: string[] = [];
+    let fileNames: string[] = []
 
     try {
-      fileNames = await fs.promises.readdir(this.mainDir);
+      fileNames = await fs.promises.readdir(this.mainDir)
     } catch (e) {
       // Папка uploads ещё не создана — скачанных профилей нет
-      console.warn(`Папка ${this.mainDir} недоступна: ${(e as Error).message}`);
-      return [];
+      console.warn(`Папка ${this.mainDir} недоступна: ${(e as Error).message}`)
+      return []
     }
 
     const galleryFiles = fileNames.filter((name) =>
       name.endsWith('_Gallery.json'),
-    );
+    )
 
-    const downloadedPosts: IDownloadedPosts[] = [];
+    const downloadedPosts: IDownloadedPosts[] = []
 
     for (const fileName of galleryFiles) {
-      const filePath = path.join(this.mainDir, fileName);
-      const id = fileName.replace(/_Gallery\.json$/, '');
+      const filePath = path.join(this.mainDir, fileName)
+      const id = fileName.replace(/_Gallery\.json$/, '')
 
       try {
-        const rawData = await fs.promises.readFile(filePath, 'utf-8');
-        const posts: IPost[] = JSON.parse(rawData);
-        const firstPicUrl = posts?.[0]?.picUrls?.[0];
+        const rawData = await fs.promises.readFile(filePath, 'utf-8')
+        const posts: IPost[] = JSON.parse(rawData)
+        const firstPicUrl = posts?.[0]?.picUrls?.[0]
 
-        if (!id || !firstPicUrl) continue;
+        if (!id || !firstPicUrl) continue
 
-        downloadedPosts.push({ id, firstPicUrl });
+        downloadedPosts.push({ id, firstPicUrl })
       } catch (e) {
         // Битый или недописанный файл не должен ронять весь список
         console.warn(
           `Не удалось прочитать ${filePath}: ${(e as Error).message}`,
-        );
+        )
       }
     }
 
-    return downloadedPosts;
+    return downloadedPosts
   }
 
   /**
@@ -405,18 +407,18 @@ export class InstagramService {
   async getDownloadedPosts(id: string): Promise<IPost[]> {
     // id приходит из имени файла, но на вход подаётся строка из query —
     // path.basename отсекает ../ и слеши
-    const safeId = path.basename(id);
-    if (!safeId) return [];
+    const safeId = path.basename(id)
+    if (!safeId) return []
 
-    const filePath = path.join(this.mainDir, `${safeId}_Gallery.json`);
+    const filePath = path.join(this.mainDir, `${safeId}_Gallery.json`)
 
     try {
-      const rawData = await fs.promises.readFile(filePath, 'utf-8');
-      const posts: unknown = JSON.parse(rawData);
-      return Array.isArray(posts) ? (posts as IPost[]) : [];
+      const rawData = await fs.promises.readFile(filePath, 'utf-8')
+      const posts: unknown = JSON.parse(rawData)
+      return Array.isArray(posts) ? (posts as IPost[]) : []
     } catch (e) {
-      console.warn(`Не удалось прочитать ${filePath}: ${(e as Error).message}`);
-      return [];
+      console.warn(`Не удалось прочитать ${filePath}: ${(e as Error).message}`)
+      return []
     }
   }
 
@@ -428,18 +430,18 @@ export class InstagramService {
   async deleteDownloadedPosts(
     id: string,
   ): Promise<{ id: string; deleted: boolean }> {
-    const safeId = path.basename(id ?? '');
-    if (!safeId) throw new BadRequestException('id не передан');
+    const safeId = path.basename(id ?? '')
+    if (!safeId) throw new BadRequestException('id не передан')
 
-    const filePath = path.join(this.mainDir, `${safeId}_Gallery.json`);
+    const filePath = path.join(this.mainDir, `${safeId}_Gallery.json`)
 
     try {
-      await fs.promises.rm(filePath, { force: true });
+      await fs.promises.rm(filePath, { force: true })
     } catch (e) {
-      console.warn(`Не удалось удалить ${filePath}: ${(e as Error).message}`);
-      throw new InternalServerErrorException('Не удалось удалить файл галереи');
+      console.warn(`Не удалось удалить ${filePath}: ${(e as Error).message}`)
+      throw new InternalServerErrorException('Не удалось удалить файл галереи')
     }
 
-    return { id: safeId, deleted: true };
+    return { id: safeId, deleted: true }
   }
 }
